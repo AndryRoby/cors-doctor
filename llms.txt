@@ -1,0 +1,44 @@
+# CORS Doctor: "has been blocked by CORS policy"
+
+> Free, client-side checker that finds why a browser is throwing "has been blocked by CORS policy" (or "No 'Access-Control-Allow-Origin' header is present") in the console, and gives the exact header or value to fix, on the backend or the front end.
+
+Paste the page's origin, the request you're sending (method, headers, content type, whether it carries credentials), and the response headers your backend actually sent, both from the preflight `OPTIONS` response if the browser sent one and from the actual response. The tool works out whether a preflight was required at all, diffs the response headers against what the CORS protocol requires for that exact request, and reports precisely which header or value is wrong, no account, no backend, nothing you type leaves your browser.
+
+## What it checks
+
+- Missing `Access-Control-Allow-Origin` on the response, or the header sent as more than one comma-joined value (both rejected outright by the browser).
+- `Access-Control-Allow-Origin: *` combined with a credentialed request (cookies, `credentials: 'include'`, `withCredentials`): the spec requires an exact origin, `Access-Control-Allow-Credentials: true`, and `Vary: Origin` instead of a wildcard. The literal string `"null"` as the origin value is checked separately, since it only matches a sandboxed/`file://` origin.
+- `Access-Control-Allow-Origin` present but not matching the page's real origin: including a scheme, `www`-vs-apex, or port difference, and `localhost` vs. `127.0.0.1` specifically, unrelated hosts to a browser even though both are loopback.
+- Whether the request needed a preflight at all: a non-`GET`/`HEAD`/`POST` method, a non-safelisted header, or a `Content-Type` outside `application/x-www-form-urlencoded` / `multipart/form-data` / `text/plain` (typically `application/json`) all force one: and whether the `OPTIONS` response actually returned 2xx with `Access-Control-Allow-Methods` / `Access-Control-Allow-Headers` covering the real request.
+- A header the real request sends (commonly a custom `Authorization` header) missing from the preflight's `Access-Control-Allow-Headers`, or either allow-list header sent as `*` on a credentialed request, not honored there.
+- A request that redirects to a different origin while a preflight is required: browsers refuse to follow a redirect for a preflighted request at all.
+- A 4xx/5xx response with no `Access-Control-Allow-Origin` at all: usually a backend that only attaches CORS headers on the success path, so the browser's CORS error is surfacing a real server error underneath, not a separate misconfiguration.
+- A cross-site credentialed request (API on a different host than the page) whose cookie is missing `SameSite=None; Secure`, and a response missing `Vary: Origin` when it echoes back a specific origin instead of `*`.
+- The same rules pattern-matched straight out of a pasted Chrome/Edge/Firefox console error, so a diagnosis is possible before every field is filled in by hand.
+- Expected header values and a copy-paste server snippet for 11 stacks: Express, FastAPI, Django, Rails, Laravel, Go, .NET/ASP.NET Core, Supabase Edge Functions, Firebase Cloud Functions, Cloudflare Workers, and S3 bucket CORS.
+
+## Who it's for
+
+Any web developer seeing "has been blocked by CORS policy" in the console: a React/Vite/Next.js front end calling Express, FastAPI, Django, Rails, Laravel, Go, .NET, Supabase, Firebase Functions, S3, Cloudflare Workers, or a third-party API.
+
+## How it works
+
+Static HTML plus one dependency-free JavaScript file, `doctor-cors.js`. All checks run in your browser against the values you type; the tool has no backend and makes no request that carries your configuration anywhere.
+
+## Privacy
+
+No account, no login, no cookies for the tool itself, no server-side processing of your request or response headers. The only analytics are anonymous usage counts (event name + count, never the content of what you entered) sent to a self-hosted Umami instance.
+
+## Links
+
+- Tool: https://arling.sk/cors-doctor/
+- Full reference (worked example + FAQ): https://arling.sk/cors-doctor/llms-full.txt
+- Source code: https://github.com/AndryRoby/cors-doctor
+- Sibling tool for Google OAuth redirect_uri_mismatch: https://arling.sk/google-oauth-redirect-doctor/
+- Sibling tool for Stripe webhook signature verification: https://arling.sk/stripe-webhook-doctor/
+- Sibling tool for Supabase Auth on the web: https://arling.sk/supabase-redirect-doctor/
+- Hub (more ARLing tools): https://arling.sk/
+
+## Contact
+
+Built by ARLing s. r. o. (Bratislava, Slovakia). andrej@arling.sk

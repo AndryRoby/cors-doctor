@@ -1,0 +1,12 @@
+{
+  "name": "cors-doctor",
+  "version": "1.0.0",
+  "description": "CORS Doctor: free, client-side diagnostic for \"has been blocked by CORS policy\" errors between a browser front end and Express, FastAPI, Django, Rails, Laravel, Go, .NET, Supabase, Firebase Functions, S3, or Cloudflare Workers.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests.mjs"
+  },
+  "license": "UNLICENSED",
+  "author": "ARLing s. r. o. <andrej@arling.sk>"
+}
