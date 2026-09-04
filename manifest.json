@@ -1,0 +1,30 @@
+{
+  "name": "CORS Doctor",
+  "short_name": "CORS Doctor",
+  "description": "Diagnose \"has been blocked by CORS policy\" errors between a browser front end and any backend: Express, FastAPI, Django, Rails, Laravel, Go, .NET, Supabase, Firebase Functions, S3, or Cloudflare Workers. Free, client-side, nothing leaves your browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f2ea",
+  "theme_color": "#f6f2ea",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

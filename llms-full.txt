@@ -1,0 +1,178 @@
+# CORS Doctor: "has been blocked by CORS policy"
+
+> Free, client-side checker that finds why a browser is throwing "has been blocked by CORS policy" (or "No 'Access-Control-Allow-Origin' header is present on the requested resource") in the console, and gives the exact header or value to fix, on the backend or the front end.
+
+Paste the page's origin, the request you're sending, and the response headers your backend actually sent (both the preflight `OPTIONS` response, if the browser sent one, and the actual response), and it works out whether a preflight was required, then cross-checks every layer against the CORS protocol and reports concrete header mismatches, no generic advice, no account, no backend.
+
+## What it checks
+
+- **Missing `Access-Control-Allow-Origin`**: MDN: "For requests without credentials, the server may specify `*`." If the header is absent entirely, this is the direct cause of the browser's own error text, "No 'Access-Control-Allow-Origin' header is present on the requested resource."
+- **`Access-Control-Allow-Origin: *` with a credentialed request**: per MDN's CORS documentation, "When responding to a credentialed request, the server must specify an origin in the value of the `Access-Control-Allow-Origin` header, instead of specifying the `*` wildcard." A credentialed request is one made with `fetch(url, { credentials: 'include' })`, `xhr.withCredentials = true`, or a same-site/cross-site cookie the browser attaches automatically. The response must also send `Access-Control-Allow-Credentials: true`: the Fetch spec calls this out separately, and per the same spec neither `Access-Control-Allow-Headers`, `Access-Control-Allow-Methods`, nor `Access-Control-Expose-Headers` may use `*` either once credentials are involved, each needs its explicit list. If the server ever varies its `Access-Control-Allow-Origin` value by request (which it must, to echo back a real origin instead of `*`), it should also send `Vary: Origin` so an intermediate cache never serves one origin's CORS-tailored response to a different origin.
+- **`Access-Control-Allow-Origin` present but not matching the page's origin**: the value must match the requesting origin exactly: scheme, host, and port all count. `https://app.example.com` and `http://app.example.com` are different origins; so are `https://example.com` and `https://www.example.com`; so are `https://example.com` and `https://example.com:8443`. MDN's error reference lists this mismatch as its own case (`CORSAllowOriginNotMatchingOrigin`), distinct from the header being missing altogether (`CORSMissingAllowOrigin`).
+- **Whether the request needed a preflight, and whether it got one**: the Fetch Standard defines exactly three CORS-safelisted methods that never trigger a preflight: `GET`, `HEAD`, `POST`. Any other method (`PUT`, `PATCH`, `DELETE`, ...) forces one. Separately, a request headers list forces a preflight unless every header is CORS-safelisted: `Accept`, `Accept-Language`, `Content-Language`, `Content-Type` (only when its MIME type is `application/x-www-form-urlencoded`, `multipart/form-data`, or `text/plain`), and `Range` (a single range). In practice, `Content-Type: application/json`: the default for almost every JSON API: already forces a preflight on its own, and any custom header (`Authorization`, `X-Api-Key`, `X-Requested-With`, …) forces one too. When a preflight is required, the browser sends `OPTIONS` with `Access-Control-Request-Method` and `Access-Control-Request-Headers` first, and will only send the real request if that `OPTIONS` response is itself successful (2xx) and its `Access-Control-Allow-Methods` / `Access-Control-Allow-Headers` cover what's being asked for. If any of that is missing, the real request is never sent at all, the browser fails it client-side and calls it a CORS error even though, from the server's point of view, nothing went wrong (it may not even have logged the failed preflight as an error).
+- **A header the real request sends missing from `Access-Control-Allow-Headers` on the preflight response**: MDN's error reference calls this `CORSMissingAllowHeaderFromPreflight`. The most common trigger by far is a custom `Authorization` header for bearer-token auth: `Authorization` is not on the CORS-safelisted header list under any circumstances, so it must always be explicitly present in `Access-Control-Allow-Headers` for a cross-origin request that sends it to succeed.
+- **A preflight response that redirects**: MDN's error reference documents `CORSExternalRedirectNotAllowed` for exactly this case. If the `OPTIONS` request comes back as a 3xx pointing at a different origin (a common side effect of a reverse proxy or a trailing-slash redirect rule that fires on every method, `OPTIONS` included), the browser refuses to follow it and fails the whole request, even though the redirect target might have answered with perfectly correct CORS headers.
+- **A preflight `OPTIONS` request answered with 4xx or 5xx**: this is not one of MDN's named error codes directly, but it's one of the most common real-world causes reported against exactly the frameworks this tool covers: a backend that has route handlers for `GET`/`POST`/etc. but never registers anything for `OPTIONS` on that path falls through to a generic 404 or 405 handler (or, on some setups, a 500 from unrelated auth middleware that runs before any CORS logic and rejects the unauthenticated `OPTIONS` call). The browser reports the resulting failure in its console as a CORS error, which sends most developers straight to fiddling with `Access-Control-Allow-Origin` even though the real fix is making sure `OPTIONS` gets a clean 2xx: Express's `cors` middleware, for example, needs an explicit `app.options('*', cors())` (or a route-level `app.options('/path', cors())`) unless it's mounted globally before your routes; FastAPI's `CORSMiddleware` and `django-cors-headers`'s `CorsMiddleware` both handle `OPTIONS` automatically once installed, but only for requests that actually reach them, so ordering relative to auth middleware and other early-exit middleware still matters (`django-cors-headers`' own docs: "CorsMiddleware should be placed as high as possible, especially before any middleware that can generate responses such as Django's CommonMiddleware").
+- **A 4xx/5xx response on the actual (non-preflight) request with no `Access-Control-Allow-Origin` on it**: a lot of frameworks only attach CORS headers on the success path (a hand-written header set only inside the 200 branch, or middleware that never sees an exception/404/500 response), so the browser's CORS error can simply be surfacing a real server error underneath, not a separate misconfiguration; the fix is making sure CORS headers land on error responses too, not just 2xx ones.
+- **More than one `Access-Control-Allow-Origin` value in a single header** (a comma-joined list): browsers reject this outright, exactly one value or `*` is allowed; this is what you get when server code appends an origin to an existing header instead of choosing one value to send back.
+- **`Access-Control-Allow-Origin` set to the literal string `"null"`**: that only ever matches a request whose own `Origin` header is `"null"` (a sandboxed iframe, a `file://` page, certain redirect chains), never a normal `https://` page origin.
+- **`localhost` vs. `127.0.0.1` (or `[::1]`) between the page and the request, or between the page and `Access-Control-Allow-Origin`**: a browser treats these as completely unrelated hosts even though both are loopback addresses, a common trap when a frontend dev server and a backend dev server pick different loopback spellings by default.
+- **A cross-site credentialed request whose cookie isn't `SameSite=None; Secure`**: once the API is on a genuinely different host than the page and the request carries credentials, any `Set-Cookie` the server wants kept needs that exact attribute pair, or the browser drops the cookie regardless of what the CORS headers say (and, separately, some browsers block third-party cookies outright, making a header-based bearer token the safer fallback).
+- **`Access-Control-Allow-Origin` reflecting a specific origin with no `Vary: Origin`**: if the server allow-lists or echoes back the caller's `Origin` rather than sending a fixed value, skipping `Vary: Origin` risks a CDN or reverse-proxy cache serving one origin's cached response to a different origin.
+- **The same failure patterns recognized straight out of a pasted browser console error**: the tool's message-parser matches the literal phrasing Chrome/Edge and Firefox print for each distinct reason in MDN's CORS error catalogue, so a diagnosis is possible from nothing but the error text, before every structured field has been filled in.
+
+## Who it's for
+
+Any web developer seeing "has been blocked by CORS policy" in the console: a React/Vite/Next.js front end calling Express, FastAPI, Django, Rails, Laravel, Go, .NET, Supabase, Firebase Functions, S3, Cloudflare Workers, or a third-party API.
+
+## How it works
+
+Static HTML plus one dependency-free JavaScript file, `doctor-cors.js`. The page calls a single pure function, `diagnose(config)`, entirely in your browser:
+
+```js
+import { diagnose } from './doctor-cors.js';
+
+const result = diagnose({
+  error: {
+    message,        // optional: a browser console error, pasted verbatim
+  },
+  request: {
+    pageOrigin,      // e.g. 'https://app.example.com': the page making the request
+    requestUrl,      // the request URL
+    method,          // 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | ...
+    credentials,     // 'omit' | 'same-origin' | 'include'
+    customHeaders,   // string[]: non-safelisted header names your code sets, e.g. ['Authorization']
+    contentType,     // the Content-Type your code sends, e.g. 'application/json'
+  },
+  response: {
+    acao,               // Access-Control-Allow-Origin, from the Network tab
+    acac,                // Access-Control-Allow-Credentials, '' or 'true'
+    acam,               // Access-Control-Allow-Methods (on the preflight response)
+    acah,               // Access-Control-Allow-Headers (on the preflight response)
+    vary,                // Vary
+    status,              // number|null: the actual (non-OPTIONS) response's status
+    preflightStatus,     // number|null: the OPTIONS response's status, if one happened
+    redirectsToOtherOrigin, // boolean|null: did a required preflight/request redirect cross-origin?
+  },
+  server: {
+    stack,           // 'express'|'fastapi'|'django'|'rails'|'laravel'|'go'|'dotnet'|
+                     // 'supabase'|'firebase-functions'|'cloudflare-workers'|'s3'
+  },
+});
+```
+
+`result` carries `status` ('pass'|'warn'|'fail'), a one-line `summary`, the full `problems` array (each with `severity`, `code`, `message`, `path`, `fix`), a `fixes` array, a `checklist` of general next steps, an `expected` object (the header values and stack-specific snippet the tool computed you should be sending), and a `disclaimer`. There is no backend and no request that carries your configuration anywhere, read `index.html` and `doctor-cors.js` directly to verify.
+
+## Worked example
+
+Input: a React app on `https://app.example.com` calling its own API at `https://api.example.com` with a bearer token in a custom `Authorization` header and a JSON body. The team added CORS to their Express backend, tested it in Postman (which never enforces CORS at all, since CORS is a browser-only mechanism), shipped it, and immediately started seeing the error in the browser. This is the tool's actual output for this input, not a hypothetical:
+
+```json
+{
+  "request": {
+    "pageOrigin": "https://app.example.com",
+    "requestUrl": "https://api.example.com/v1/orders",
+    "method": "POST",
+    "credentials": "omit",
+    "customHeaders": ["Authorization"],
+    "contentType": "application/json"
+  },
+  "response": {
+    "acao": "https://app.example.com",
+    "acam": "POST, OPTIONS",
+    "acah": "Content-Type",
+    "vary": "Origin",
+    "preflightStatus": 204
+  },
+  "server": { "stack": "express" }
+}
+```
+
+Output:
+
+```json
+{
+  "status": "fail",
+  "summary": "1 blocking mismatch found. Most urgent: Header \"Authorization\" the request sends is not in Access-Control-Allow-Headers (\"Content-Type\").",
+  "problems": [
+    {
+      "severity": "high",
+      "code": "header_not_in_acah",
+      "message": "Header \"Authorization\" the request sends is not in Access-Control-Allow-Headers (\"Content-Type\").",
+      "path": "response.acah",
+      "value": "Content-Type",
+      "fix": "Add \"Authorization\" to Access-Control-Allow-Headers."
+    }
+  ],
+  "expected": {
+    "needsPreflight": true,
+    "preflightReasons": [
+      "it sends header \"Authorization\", outside the CORS-safelisted set",
+      "Content-Type is \"application/json\", outside the simple set (application/x-www-form-urlencoded, multipart/form-data, text/plain)"
+    ],
+    "acam": "POST, OPTIONS",
+    "acah": "Authorization, Content-Type",
+    "snippet": "const cors = require('cors');\n\napp.use(cors({\n  origin: 'https://app.example.com',\n  credentials: false,\n  methods: 'POST, OPTIONS',\n  allowedHeaders: 'Authorization, Content-Type',\n}));\n// cors() must run before your routes and before any auth middleware\n// that could otherwise 401/redirect the OPTIONS preflight itself."
+  },
+  "checklist": [
+    "Open DevTools → Network, click the failed request, and check both it and (if the method/headers force one) the OPTIONS preflight just above it: the Console tab only shows a one-line summary, not which header is missing.",
+    "Compare Access-Control-Allow-Origin byte-for-byte against the page origin: scheme, host (www vs. apex, localhost vs. 127.0.0.1) and port all count, and there is no path component to an origin.",
+    "This request needs a preflight because it sends header \"Authorization\", outside the CORS-safelisted set; Content-Type is \"application/json\", outside the simple set (application/x-www-form-urlencoded, multipart/form-data, text/plain).",
+    "CORS headers are response headers your server controls. Setting an \"Access-Control-Allow-Origin\" request header on the frontend does nothing: if that is what changed, it is fixing the wrong side.",
+    "Re-check after every deploy: a reverse proxy, CDN or load balancer in front of your API can strip or rewrite CORS headers even when your application code is correct."
+  ],
+  "disclaimer": "Read-only, client-side analysis of the values you entered. Nothing is verified against your live server: always confirm with your browser's Network tab and your server logs before shipping a fix."
+}
+```
+
+Everything else about this request is already correct: the origin matches, the preflight itself returned 204, the method is allow-listed, `Vary: Origin` is present. It's one missing token on one header that the tool catches, instead of re-reading two long comma-separated header values by eye, and `expected.snippet` hands back the exact `cors()` call to change.
+
+## FAQ
+
+**Why do I see "has been blocked by CORS policy" in the console, but the same request works fine in Postman or curl?**
+CORS is enforced entirely by the browser, not by the server. Postman, curl, a mobile app, and server-to-server calls never send a preflight and never check `Access-Control-Allow-Origin` at all, they just make the HTTP request and read whatever comes back. Only a script running inside a browser page enforces CORS, so "it works in Postman" proves the server responds, not that the response has correct CORS headers.
+
+**What's the difference between a "simple" request and one that needs a preflight?**
+A request is CORS-safelisted ("simple", no preflight) only if its method is `GET`, `HEAD`, or `POST`, and every header it sends is one of `Accept`, `Accept-Language`, `Content-Language`, `Content-Type` (restricted to `application/x-www-form-urlencoded`, `multipart/form-data`, or `text/plain`), or a single `Range`. Anything else, a `PUT`/`PATCH`/`DELETE` method, a custom header like `Authorization` or `X-Api-Key`, or a `Content-Type: application/json` body, forces the browser to send an `OPTIONS` preflight first and get a successful response before it will send the real request.
+
+**I set `Access-Control-Allow-Origin: *` and it still fails, why?**
+Almost always because the request carries credentials (cookies, `credentials: 'include'`, or `xhr.withCredentials = true`). The CORS protocol explicitly forbids `*` for a credentialed response, the server must echo back the exact requesting origin instead, and also send `Access-Control-Allow-Credentials: true`. `*` for `Access-Control-Allow-Origin` only works for requests sent without credentials.
+
+**Why does my `OPTIONS` request come back with a 404 or 405 instead of a successful response?**
+Most backend frameworks route by method, and if nothing explicitly handles `OPTIONS` on that path, it falls through to a generic not-found or method-not-allowed handler that was never written with CORS in mind. Express's `cors` middleware needs an explicit `app.options('*', cors())` (or a per-route one) unless it wraps every route already; FastAPI's `CORSMiddleware` and `django-cors-headers` both answer `OPTIONS` automatically once correctly installed, but only for requests that reach that middleware at all, if auth middleware or a reverse-proxy rule runs first and rejects the unauthenticated, header-light preflight request, the CORS middleware never gets a chance to answer it.
+
+**Does CORS protect my API from being called by other websites or scripts?**
+No. `Access-Control-Allow-Origin` and the rest of the CORS protocol are enforced by the browser reading the response, they don't stop the request from reaching your server, and they do nothing at all against a request made outside a browser (a script, a bot, curl, another server). CORS headers say who is allowed to *read the response* from inside a page's own JavaScript; the actual request is already sent, and already executed by your server, before the browser applies that check. Real access control needs to happen server-side (auth, an API key, rate limiting), not through CORS configuration.
+
+**Why does my `GET` request work but my `PUT`/`DELETE`/`PATCH` request fail with the same server?**
+`GET` (like `HEAD` and simple `POST`) is CORS-safelisted and, if its headers are also safelisted, never triggers a preflight at all, so a server with zero CORS configuration can still "work" for a plain `GET` in the sense that the browser lets the response through if `Access-Control-Allow-Origin` happens to already be correct, or fails only at the read stage. `PUT`, `PATCH`, and `DELETE` are never safelisted methods, so they always require a preflight, and if the server has no working `OPTIONS` handler for that route the request never leaves the browser at all, which is a different, earlier failure than a `GET` whose response just lacks the right header.
+
+**What is `Vary: Origin` for, and do I actually need it?**
+It tells any cache sitting between the browser and your server (a CDN, a reverse proxy, even the browser's own HTTP cache) that the response body and headers can differ by the request's `Origin` header, and so must not be reused across different origins. If your server computes `Access-Control-Allow-Origin` dynamically (echoing back whichever origin is allow-listed, rather than a fixed single value or `*`), skipping `Vary: Origin` risks a cache serving Origin A's CORS-tailored response to a request from Origin B, silently breaking (or, worse, silently over-permitting) CORS for whoever hits the cached copy next.
+
+**My request has an `Authorization` header and it's already listed in `Access-Control-Allow-Headers` on the preflight, but it still fails, what else could it be?**
+Check case and exact spelling first (header name matching is case-insensitive per HTTP, but a typo like `Authorisation` or `X-Authorization` is not the same string at all), then check whether the preflight response is being cached from before the header was added, `Access-Control-Max-Age` tells the browser how long it may skip re-sending `OPTIONS` and reuse the last preflight result, so a fix on the server can appear not to have taken effect for up to that many seconds. Also confirm the credentials rule isn't the actual blocker, if the request also sends credentials, `Access-Control-Allow-Origin` still can't be `*` regardless of what `Access-Control-Allow-Headers` says.
+
+**My frontend is on `localhost:3000` and my API is on `127.0.0.1:8000`, and I get a CORS error even though I allow-listed "localhost" on the server, why?**
+To a browser, `localhost` and `127.0.0.1` are two different hosts, not aliases of each other, even though both resolve to the local loopback interface. `Access-Control-Allow-Origin` (or any origin allow-list) has to list the exact host string the page actually loads from; if your frontend dev server prints one and your backend's CORS config was written against the other, that mismatch alone causes the block. Pick one spelling and use it consistently on both sides, or allow-list both.
+
+**Can I just paste the error message from my browser's console instead of filling in every field?**
+Yes. The pasted text is matched against the literal phrasing Chrome/Edge and Firefox use for each distinct CORS failure reason (missing header, mismatched origin, wildcard-with-credentials, method/header not allowed, preflight redirect, preflight failure, and more), so a first-pass diagnosis is possible from the error text alone; filling in the structured fields (page origin, request, response headers) still gives a more complete result, since some checks (like a `localhost` vs. `127.0.0.1` mismatch or a missing `SameSite=None; Secure` cookie attribute) aren't things the browser's own error text mentions at all.
+
+## Privacy
+
+No account, no login, no cookies for the tool itself, no server-side processing of your request or response headers. The only analytics are anonymous usage counts (event name + count, never the content of what you entered) sent to a self-hosted Umami instance.
+
+## Links
+
+- Tool: https://arling.sk/cors-doctor/
+- Short reference: https://arling.sk/cors-doctor/llms.txt
+- Source code: https://github.com/AndryRoby/cors-doctor
+- Sibling tool for Google OAuth redirect_uri_mismatch: https://arling.sk/google-oauth-redirect-doctor/
+- Sibling tool for Stripe webhook signature verification: https://arling.sk/stripe-webhook-doctor/
+- Sibling tool for Supabase Auth on the web: https://arling.sk/supabase-redirect-doctor/
+- Hub (more ARLing tools): https://arling.sk/
+
+## Contact
+
+Built by ARLing s. r. o. (Bratislava, Slovakia). andrej@arling.sk

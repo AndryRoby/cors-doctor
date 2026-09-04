@@ -1,0 +1,1197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://homelab.tailbf8f27.ts.net; connect-src 'self' https://homelab.tailbf8f27.ts.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<title>CORS Doctor</title>
+<meta name="description" content="Paste the &quot;has been blocked by CORS policy&quot; console error, what your front end sent, and the response headers your server sent back. Get the exact header that's missing and a copy-paste fix for Express, FastAPI, Django, Rails, Laravel, Go, .NET, Supabase, Firebase Functions, S3, or Cloudflare Workers. Free and client-side; nothing leaves your browser.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="CORS Doctor">
+<meta property="og:description" content="Paste the CORS console error, your request, and the response headers. Get the exact header that's missing and a copy-paste fix for your stack. Free and client-side.">
+<meta property="og:url" content="https://arling.sk/cors-doctor/">
+<meta property="og:image" content="https://arling.sk/cors-doctor/icon-512.png">
+<meta name="theme-color" content="#f6f2ea">
+<link rel="canonical" href="https://arling.sk/cors-doctor/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<link rel="alternate" type="text/plain" href="https://arling.sk/cors-doctor/llms.txt" title="llms.txt">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "CORS Doctor",
+  "url": "https://arling.sk/cors-doctor/",
+  "description": "Free, client-side checker that diagnoses \"has been blocked by CORS policy\" errors between a browser front end and a backend on Express, FastAPI, Django, Rails, Laravel, Go, .NET, Supabase, Firebase Functions, S3, or Cloudflare Workers, and shows exactly which CORS header is missing, wrong, or unreachable.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "EUR"
+  },
+  "author": {
+    "@type": "Organization",
+    "name": "ARLing s. r. o.",
+    "url": "https://arling.sk/",
+    "email": "andrej@arling.sk",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Bratislava",
+      "addressCountry": "SK"
+    }
+  },
+  "sameAs": [
+    "https://github.com/AndryRoby/cors-doctor"
+  ]
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What does \"No Access-Control-Allow-Origin header is present\" mean?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It means the response your browser received had no Access-Control-Allow-Origin header at all, so the browser refuses to hand the response body to your JavaScript, even though the server may have processed the request correctly and even returned a 200. Either the server never sends the header (no CORS middleware, or it isn't wired into this route), or something in front of it, a proxy, CDN, load balancer, or an error-handling middleware, strips it before the response reaches the browser. It is not a case of the value being wrong: there is no value at all."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why does CORS fail only for POST with JSON or with an Authorization header?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Because that request stops being a \"simple request\" the moment it carries a header outside the CORS-safelisted set (Accept, Accept-Language, Content-Language, Content-Type) or a Content-Type other than application/x-www-form-urlencoded, multipart/form-data, or text/plain. application/json and an Authorization header both push it into preflight territory: the browser sends an OPTIONS request first, and if that OPTIONS response is missing, returns a non-2xx status, or its Access-Control-Allow-Methods / Access-Control-Allow-Headers don't list your method and header, the browser blocks the real request before it's even sent. A plain GET or a form-encoded POST never triggers this, which is why it can look like \"POST is broken\" when it's really \"the preflight for this POST is broken\"."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I use Access-Control-Allow-Origin: * with credentials?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. The Fetch/CORS spec forbids pairing the * wildcard with a credentialed request (cookies, or fetch with credentials: 'include'): when responding to a credentialed request, the server must specify an origin in Access-Control-Allow-Origin instead of specifying the * wildcard, and it must also send Access-Control-Allow-Credentials: true. If your request needs cookies or an Authorization header carried automatically, the server has to echo back the exact requesting origin (typically from an allow-list), not a wildcard, plus Vary: Origin so caches don't serve one origin's response to another."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why does it work in Postman but not in the browser?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "CORS is a browser-enforced restriction, not a server-enforced one. Postman, curl, and server-to-server calls never apply the same-origin policy or send a preflight OPTIONS request, so they see the real response regardless of what CORS headers are present. Only a page running in a browser, calling a different origin via fetch/XHR, triggers CORS checks and preflights. If Postman gets a clean 200, your server logic is fine: the fix is entirely about which response headers your server sends back to a browser-originated request."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I fix CORS on Express, FastAPI or Django?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Express: app.use(cors({ origin: 'https://your-frontend.example', credentials: true })) using the cors package, mounted before your routes and before any auth middleware. FastAPI: app.add_middleware(CORSMiddleware, allow_origins=[...], allow_credentials=True, allow_methods=[...], allow_headers=[...]): note allow_origins can't be [\"*\"] together with allow_credentials=True. Django: add corsheaders to INSTALLED_APPS, put corsheaders.middleware.CorsMiddleware as high as possible in MIDDLEWARE, and set CORS_ALLOWED_ORIGINS. In every case the exact origin (not a wildcard, if you use cookies) and the ordering of middleware relative to auth checks are what most setups get wrong. The diagnosis tool above generates the specific snippet for your values."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does this tool call my server?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Everything you type or paste, the error text, your request details, the response headers, stays in your browser tab and is never sent anywhere. The diagnosis runs entirely client-side against the values you enter; it never makes a request to your API to check anything live. Read doctor-cors.js directly, or check your browser's Network tab while using the tool, to verify."
+      }
+    }
+  ]
+}
+</script>
+
+<style>
+  :root {
+    --paper:#f6f2ea; --paper-2:#fbf9f4; --ink:#1b1a17; --ink-2:#4a4741; --muted:#66625a; --line:#d9d2c4;
+    --accent:#b23a1d; --accent-soft:#f3e2dc; --ok:#2f6f3e; --warn:#9a6b00;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Code",Consolas,Menlo,monospace;
+    --radius:4px;
+    --maxw:1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper:#151412; --paper-2:#1d1b18; --ink:#efe9de; --ink-2:#c9c2b5; --muted:#8f887b; --line:#2e2b26; --accent:#e0623f; --accent-soft:#3a1f17; --ok:#7fbf8e; --warn:#d9a54a; }
+  }
+  * { box-sizing:border-box; }
+  html { background:var(--paper); }
+  body { margin:0; color:var(--ink); background:var(--paper); font:16px/1.55 var(--sans); -webkit-font-smoothing:antialiased; }
+  img { max-width:100%; }
+  a { color:inherit; text-decoration-color:var(--line); text-underline-offset:3px; }
+  a:hover { text-decoration-color:var(--accent); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  [hidden] { display:none !important; }
+  .skip { position:absolute; left:-999px; top:8px; background:var(--ink); color:var(--paper); padding:8px 12px; z-index:100; }
+  .skip:focus { left:8px; }
+  .wrap { max-width:var(--maxw); margin:0 auto; padding:0 24px; }
+  .mono { font-family:var(--mono); }
+
+  /* Header */
+  header.top { border-bottom:1px solid var(--line); }
+  header.top .wrap { display:flex; align-items:baseline; justify-content:space-between; gap:20px 24px; padding:18px 24px; flex-wrap:wrap; }
+  .wordmark { font:600 21px/1 var(--serif); text-decoration:none; }
+  .wordmark small { font:12.5px/1 var(--sans); color:var(--muted); margin-left:10px; letter-spacing:.04em; }
+  nav.main { display:flex; flex-wrap:wrap; gap:6px 20px; }
+  nav.main a { font-size:14px; text-decoration:none; color:var(--ink-2); white-space:nowrap; }
+  nav.main a:hover { color:var(--accent); }
+  @media (max-width:480px) { .wordmark small { display:none; } }
+
+  /* Hero */
+  .hero { padding:60px 0 44px; border-bottom:1px solid var(--line); }
+  .hero h1 { font:400 clamp(30px,5vw,46px)/1.15 var(--serif); letter-spacing:-.01em; margin:0 0 18px; max-width:22ch; }
+  .hero h1 .mono { font-size:.62em; font-weight:500; }
+  .hero p.lead { font-size:18px; color:var(--ink-2); max-width:62ch; margin:0 0 26px; }
+  .hero-cta { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:28px; }
+  .facts { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:8px 0; color:var(--muted); font-size:14px; }
+  .facts li + li::before { content:"\00b7"; margin:0 10px; color:var(--line); }
+  .facts b { color:var(--ink); font-weight:600; }
+
+  /* Buttons */
+  .btn { display:inline-block; font:600 15px/1 var(--sans); padding:12px 18px; border-radius:var(--radius); text-decoration:none; cursor:pointer; border:2px solid transparent; }
+  .btn-solid { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn-solid:hover { color:#fff; opacity:.92; }
+  .btn-line { border:2px solid var(--ink); color:var(--ink); background:transparent; }
+  .btn:disabled { opacity:.6; cursor:default; }
+
+  /* Section frame */
+  section.block { padding:56px 0; border-bottom:1px solid var(--line); }
+  .section-head { max-width:74ch; margin-bottom:8px; }
+  .kicker { font:400 14px/1 var(--serif); color:var(--accent); letter-spacing:.04em; margin:0 0 8px; }
+  h2 { font:400 clamp(24px,3.4vw,30px)/1.2 var(--serif); margin:0 0 10px; letter-spacing:-.005em; max-width:26ch; }
+  .sub { color:var(--ink-2); max-width:64ch; margin:0; font-size:15.5px; }
+
+  /* Rules list (problem section) */
+  .rules { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:26px 32px; margin:30px 0 0; padding:0; list-style:none; counter-reset:r; }
+  .rules li { padding-top:14px; border-top:1px solid var(--line); min-width:0; }
+  .rules li::before { counter-increment:r; content:counter(r,decimal-leading-zero); font:400 14px/1 var(--serif); color:var(--accent); display:block; margin-bottom:8px; }
+  .rules b { display:block; font-weight:600; margin-bottom:4px; font-size:15.5px; }
+  .rules p { margin:0; color:var(--ink-2); font-size:14.5px; overflow-wrap:anywhere; }
+
+  /* Playground */
+  .play { border:1px solid var(--line); background:var(--paper-2); border-radius:6px; overflow:hidden; margin-top:30px; }
+  .play-head { display:flex; align-items:center; gap:14px; padding:10px 14px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:12px; color:var(--muted); flex-wrap:wrap; }
+  .play-head .lights { display:flex; gap:6px; }
+  .play-head .lights span { width:9px; height:9px; border-radius:50%; border:1px solid var(--line); }
+  .play-head .path { color:var(--ink-2); }
+  .play-head .path .method { color:var(--accent); }
+  .play-head .spacer { flex:1; }
+  .play-head .runtime { color:var(--muted); }
+
+  .play-body { display:grid; grid-template-columns:1fr 1fr; min-height:460px; }
+  @media (max-width:900px) { .play-body { grid-template-columns:1fr; } }
+  .pane { display:flex; flex-direction:column; min-width:0; }
+  .pane + .pane { border-left:1px solid var(--line); }
+  @media (max-width:900px) { .pane + .pane { border-left:none; border-top:1px solid var(--line); } }
+  .pane-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .pane-title { font-family:var(--mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+  .pane-actions { display:flex; gap:6px; flex-wrap:wrap; }
+
+  /* Tabs */
+  .tabs { display:flex; gap:4px; }
+  .tab-btn { background:transparent; border:1px solid var(--line); color:var(--ink-2); font-family:var(--sans); font-size:12.5px; padding:5px 10px; border-radius:4px; cursor:pointer; }
+  .tab-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  .tab-btn:not(.active):hover { border-color:var(--ink-2); color:var(--ink); }
+
+  /* Small utility buttons */
+  .icon-btn { background:transparent; color:var(--ink-2); border:1px solid var(--line); border-radius:4px; font-family:var(--sans); font-size:12px; padding:5px 10px; cursor:pointer; }
+  .icon-btn:hover { color:var(--ink); border-color:var(--ink-2); background:var(--paper); }
+  .icon-btn:disabled { opacity:.6; cursor:progress; }
+  .icon-btn.btn-solid { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  .icon-btn.btn-solid:hover { opacity:.9; background:var(--accent); color:#fff; }
+
+  /* Form mode */
+  #form-pane { flex:1; overflow:auto; padding:16px 18px; display:flex; flex-direction:column; gap:20px; min-height:440px; }
+  .form-section { display:flex; flex-direction:column; gap:10px; }
+  .form-section-title { font:600 11px/1 var(--sans); letter-spacing:.04em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .field-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .field { display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .field.full { grid-column:1 / -1; }
+  .field label { font-size:12px; color:var(--ink-2); font-family:var(--sans); }
+  .field input[type="text"], .field input[type="number"], .field select, .field textarea {
+    background:var(--paper-2); color:var(--ink); border:1px solid var(--line); border-radius:4px;
+    padding:7px 9px; font-family:var(--mono); font-size:12.5px; outline:none; width:100%;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color:var(--ink-2); }
+  .field textarea { resize:vertical; min-height:50px; line-height:1.5; }
+  .field .hint { font-size:10.5px; color:var(--muted); font-family:var(--sans); }
+  @media (max-width:480px) { .field-grid { grid-template-columns:1fr; } }
+
+  .json-pane { display:flex; flex-direction:column; }
+  textarea.json-in {
+    flex:1; width:100%; background:var(--paper-2); color:var(--ink); border:none; outline:none; resize:none;
+    padding:16px 18px; font-family:var(--mono); font-size:13px; line-height:1.65; tab-size:2; min-height:440px;
+  }
+  .json-error { margin:0; padding:8px 18px; font-family:var(--mono); font-size:11.5px; color:var(--accent); background:var(--accent-soft); border-top:1px solid var(--line); }
+
+  .output { flex:1; padding:16px 18px; font-family:var(--mono); font-size:13px; line-height:1.7; overflow:auto; min-height:440px; background:var(--paper-2); }
+  .output .placeholder { color:var(--muted); font-size:13px; font-family:var(--mono); }
+  .output .placeholder .blink { display:inline-block; width:7px; height:14px; background:var(--muted); vertical-align:-2px; margin-left:4px; animation:blink 1.1s steps(2,end) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  .out-line { white-space:pre-wrap; word-break:break-word; }
+  .k { color:var(--ink-2); }
+  .s { color:var(--ok); }
+  .n { color:var(--accent); }
+  .b { color:var(--ink-2); font-style:italic; }
+  .p { color:var(--muted); }
+  .sev-high { color:var(--accent); }
+  .sev-medium { color:var(--warn); }
+  .sev-low { color:var(--muted); }
+
+  .status-strip { display:flex; align-items:center; gap:14px; padding:10px 18px; border-top:1px solid var(--line); font-family:var(--mono); font-size:11.5px; color:var(--muted); flex-wrap:wrap; }
+  .status-pill { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:4px; border:1px solid var(--line); background:var(--paper); color:var(--ink-2); }
+  .status-pill.fail { color:var(--accent); border-color:var(--accent); background:var(--accent-soft); }
+  .status-pill.warn { color:var(--warn); border-color:var(--warn); }
+  .status-pill.pass { color:var(--ok); border-color:var(--ok); }
+
+  /* Rendered result */
+  .result { display:flex; flex-direction:column; gap:20px; }
+  .big-pill { display:inline-flex; align-items:center; font-family:var(--mono); font-size:12px; font-weight:600; padding:4px 10px; border-radius:4px; border:1px solid var(--line); text-transform:uppercase; letter-spacing:.03em; }
+  .big-pill.pass { color:var(--ok); border-color:var(--ok); }
+  .big-pill.warn { color:var(--warn); border-color:var(--warn); }
+  .big-pill.fail { color:var(--accent); border-color:var(--accent); }
+  .result-summary { font-size:13.5px; color:var(--ink-2); line-height:1.6; margin:10px 0 0; }
+
+  .exp-table { width:100%; border-collapse:collapse; font-size:12.5px; table-layout:fixed; }
+  .exp-table td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .exp-table td.k { color:var(--muted); white-space:nowrap; padding-right:14px; width:1%; }
+  .exp-table td.v { color:var(--ink); word-break:break-all; }
+  .exp-table td.v.mono { font-family:var(--mono); }
+  .exp-table td.v.multiline, .exp-table td.v.prose { white-space:pre-wrap; word-break:break-word; }
+  .exp-table td.v.prose { font-family:var(--sans); color:var(--ink-2); }
+  .exp-table tr:last-child td { border-bottom:none; }
+
+  .problem-item { border-left:3px solid var(--line); padding:8px 10px; background:var(--paper); border-radius:0 4px 4px 0; font-size:12.5px; line-height:1.5; overflow-wrap:anywhere; }
+  .problem-item + .problem-item { margin-top:8px; }
+  .problem-item.high { border-color:var(--accent); }
+  .problem-item.medium { border-color:var(--warn); }
+  .problem-item.low { border-color:var(--muted); }
+  .problem-item .sev-tag { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.03em; margin-right:6px; }
+  .problem-item.high .sev-tag { color:var(--accent); }
+  .problem-item.medium .sev-tag { color:var(--warn); }
+  .problem-item.low .sev-tag { color:var(--muted); }
+  .problem-item .where { color:var(--muted); font-family:var(--mono); font-size:10.5px; margin-top:3px; }
+
+  .fix-item { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; background:var(--paper); border:1px solid var(--line); border-radius:4px; padding:9px 10px; font-size:12px; }
+  .fix-item + .fix-item { margin-top:8px; }
+  .fix-item .fix-body { min-width:0; flex:1; }
+  .fix-item .fix-title { color:var(--ink-2); margin-bottom:4px; }
+  .fix-item .fix-title .where { color:var(--muted); }
+  .fix-item .fix-value { font-family:var(--mono); color:var(--accent); word-break:break-all; margin:0; }
+  .fix-item .fix-value.multiline { white-space:pre-wrap; word-break:break-word; overflow-x:auto; }
+  .fix-item .copy-fix-btn { flex-shrink:0; }
+
+  .checklist { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px; font-size:12.5px; color:var(--ink-2); }
+  .checklist li { display:flex; gap:8px; line-height:1.5; overflow-wrap:anywhere; }
+  .checklist li::before { content:"\2610"; color:var(--accent); flex-shrink:0; }
+
+  .permalink-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:14px 18px 18px; border-top:1px solid var(--line); }
+  .permalink-hint { font-family:var(--mono); font-size:11px; color:var(--muted); }
+
+  /* Endpoint / how it works */
+  .endpoint { display:grid; grid-template-columns:1fr 1fr; gap:28px; align-items:start; margin-top:30px; }
+  @media (max-width:820px) { .endpoint { grid-template-columns:1fr; } }
+  .codeblock { border:1px solid var(--line); background:var(--paper-2); border-radius:6px; overflow:hidden; }
+  .codeblock-head { padding:10px 14px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); display:flex; justify-content:space-between; align-items:center; }
+  .codeblock pre { margin:0; padding:16px 18px; font-size:12.5px; line-height:1.7; overflow-x:auto; color:var(--ink-2); font-family:var(--mono); -webkit-overflow-scrolling:touch; }
+  .endpoint-copy p { margin:0 0 14px; color:var(--ink-2); font-size:15px; line-height:1.6; }
+  .endpoint-copy .note { font-family:var(--mono); font-size:12.5px; color:var(--muted); border-left:2px solid var(--accent); padding:8px 0 8px 14px; margin-top:18px; line-height:1.6; }
+
+  /* Free */
+  #pricing .btn-line { margin-top:26px; }
+  .ask { display:flex; flex-wrap:wrap; align-items:center; gap:14px 24px; }
+  .ask p { margin:0; color:var(--ink-2); max-width:56ch; }
+  .subscribe-ask { border-top:1px solid var(--line); margin-top:24px; padding-top:24px; }
+  .subscribe-form { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .subscribe-form input[type="email"] { height:44px; min-width:0; flex:1 1 240px; padding:0 14px; border:1px solid var(--line); border-radius:4px; background:var(--paper-2); color:var(--ink); font:15px/1 var(--sans); }
+  .subscribe-form input[type="email"]::placeholder { color:var(--muted); }
+  .subscribe-form .btn { flex:none; }
+  .hp { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  #subscribe-thanks { color:var(--ok); font-weight:600; }
+  #subscribe-error { color:var(--accent); font-weight:600; }
+  @media (max-width: 480px) { .subscribe-form input[type="email"], .subscribe-form button { width:100%; } }
+
+  /* FAQ (details/summary) */
+  details { border-top:1px solid var(--line); padding:14px 0; }
+  details:last-of-type { border-bottom:1px solid var(--line); }
+  summary { cursor:pointer; font:400 18px/1.3 var(--serif); list-style:none; display:flex; justify-content:space-between; gap:12px; }
+  summary::-webkit-details-marker { display:none; }
+  summary::after { content:"+"; color:var(--accent); flex:none; font-family:var(--sans); }
+  details[open] summary::after { content:"\2013"; }
+  details p { color:var(--ink-2); margin:10px 0 0; max-width:70ch; font-size:14.5px; overflow-wrap:anywhere; }
+
+  /* Footer */
+  footer { padding:32px 0 48px; color:var(--muted); font-size:13.5px; }
+  footer .cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px 32px; }
+  footer b { color:var(--ink); font-weight:600; }
+  footer a { color:var(--ink-2); }
+  footer p { margin:10px 0 0; }
+
+  .kbd { font-family:var(--mono); font-size:11px; padding:1px 6px; border-radius:3px; border:1px solid var(--line); background:var(--paper); color:var(--ink-2); }
+  .anchor-offset { scroll-margin-top:24px; }
+  pre { max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  pre span { white-space:pre; }
+</style>
+</head>
+<body>
+
+<a class="skip" href="#playground">Skip to the diagnosis tool</a>
+
+<!-- Header -->
+<header id="top" class="top">
+  <div class="wrap">
+    <a class="wordmark" href="https://arling.sk/">CORS Doctor<small>an ARLing tool</small></a>
+    <nav class="main" aria-label="Page">
+      <a href="#problem">Problem</a>
+      <a href="#playground">Diagnose</a>
+      <a href="#endpoint">How it works</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="wrap">
+    <h1>Blocked by CORS policy? Find which header is missing and where.</h1>
+    <p class="lead">Paste the error your browser console printed, what your front end actually sent (origin, method, headers, credentials), and the CORS headers your server sent back. Get the exact rule that's broken, byte for byte, plus a copy-paste header value or server snippet for Express, FastAPI, Django, Rails, Laravel, Go, .NET, Supabase, Firebase Functions, S3, or Cloudflare Workers.</p>
+    <div class="hero-cta">
+      <a href="#playground" class="btn btn-solid">Diagnose your CORS error</a>
+      <a href="https://github.com/AndryRoby/cors-doctor" class="btn btn-line" target="_blank" rel="noopener">View source on GitHub</a>
+    </div>
+    <ul class="facts">
+      <li><b>11</b> stacks covered</li>
+      <li><b>107</b> automated tests</li>
+      <li><b>0 &euro;</b>, no account</li>
+      <li>runs entirely in your browser</li>
+    </ul>
+  </div>
+</div>
+
+<main>
+
+<!-- 01 Problem -->
+<section id="problem" class="block anchor-offset">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">01</p>
+      <h2>Three reasons your request keeps getting blocked.</h2>
+      <p class="sub">CORS is enforced entirely by the browser, on the response headers it receives. These three causes account for almost every "blocked by CORS policy" error.</p>
+    </div>
+    <ol class="rules">
+      <li>
+        <b>No permission header at all.</b>
+        <p>The server (or a proxy/CDN in front of it) never sent <span class="mono">Access-Control-Allow-Origin</span>. The browser blocks the response client-side, even when your API returned a real 200 with real data.</p>
+      </li>
+      <li>
+        <b>The wildcard doesn't work with cookies.</b>
+        <p><span class="mono">Access-Control-Allow-Origin: *</span> can never be paired with <span class="mono">credentials: 'include'</span>. The spec requires the exact origin, plus <span class="mono">Access-Control-Allow-Credentials: true</span>, once cookies or an <span class="mono">Authorization</span> header are involved.</p>
+      </li>
+      <li>
+        <b>The preflight never gets a real answer.</b>
+        <p>A non-simple request (JSON body, custom header, <span class="mono">PUT</span>/<span class="mono">DELETE</span>) sends an <span class="mono">OPTIONS</span> first. If auth middleware or a catch-all router intercepts it before your CORS handler, the browser blocks the real request even though calling the route directly works fine.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- 02 Diagnose -->
+<section id="playground" class="block anchor-offset">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">02</p>
+      <h2>Fill in what your console, Network tab and server show. Get the exact diff.</h2>
+      <p class="sub">Nothing you type or paste is sent anywhere. The check runs in your browser, against the documented CORS rules from MDN and the Fetch/WHATWG spec.</p>
+    </div>
+
+    <div class="play">
+      <div class="play-head">
+        <div class="lights"><span></span><span></span><span></span></div>
+        <div class="path"><span class="method">fn</span>&nbsp;CorsDoctor.diagnose(config)</div>
+        <div class="spacer"></div>
+        <div class="runtime">client-side, no network</div>
+      </div>
+
+      <div class="play-body">
+        <div class="pane">
+          <div class="pane-head">
+            <div class="tabs">
+              <button class="tab-btn active" id="tab-form" type="button">Form</button>
+              <button class="tab-btn" id="tab-json" type="button">JSON</button>
+            </div>
+            <div class="pane-actions">
+              <button class="icon-btn" id="reset-btn" type="button" title="Reset to example">example</button>
+              <button class="icon-btn btn-solid" id="run-btn" type="button">Diagnose &crarr;</button>
+            </div>
+          </div>
+
+          <div id="form-pane">
+            <div class="form-section">
+              <div class="form-section-title">Console error (optional)</div>
+              <div class="field-grid">
+                <div class="field full">
+                  <label for="f-errormsg">Pasted error text</label>
+                  <textarea id="f-errormsg" rows="3" placeholder="Access to fetch at '...' from origin '...' has been blocked by CORS policy: ..." spellcheck="false"></textarea>
+                  <span class="hint">Straight from the browser console (Chrome, Edge or Firefox). Used as a fallback when the fields below are left blank.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">What your front end sent</div>
+              <div class="field-grid">
+                <div class="field full">
+                  <label for="f-pageorigin">Page origin</label>
+                  <input type="text" id="f-pageorigin" placeholder="https://myapp.com" spellcheck="false" />
+                </div>
+                <div class="field full">
+                  <label for="f-requesturl">Request URL</label>
+                  <input type="text" id="f-requesturl" placeholder="https://api.myapp.com/v1/orders" spellcheck="false" />
+                </div>
+                <div class="field">
+                  <label for="f-method">Method</label>
+                  <select id="f-method">
+                    <option value="">GET (default)</option>
+                    <option value="GET">GET</option>
+                    <option value="HEAD">HEAD</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                    <option value="OPTIONS">OPTIONS</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="f-credentials">Credentials mode</label>
+                  <select id="f-credentials">
+                    <option value="">not set</option>
+                    <option value="omit">omit</option>
+                    <option value="same-origin">same-origin</option>
+                    <option value="include">include (cookies / withCredentials)</option>
+                  </select>
+                </div>
+                <div class="field full">
+                  <label for="f-customheaders">Custom request headers (one per line)</label>
+                  <textarea id="f-customheaders" rows="2" placeholder="Authorization" spellcheck="false"></textarea>
+                  <span class="hint">Only headers outside Accept / Accept-Language / Content-Language / Content-Type. Names only, never values.</span>
+                </div>
+                <div class="field full">
+                  <label for="f-contenttype">Content-Type sent</label>
+                  <input type="text" id="f-contenttype" placeholder="application/json" spellcheck="false" />
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Response headers (from the Network tab)</div>
+              <div class="field-grid">
+                <div class="field full">
+                  <label for="f-acao">Access-Control-Allow-Origin</label>
+                  <input type="text" id="f-acao" placeholder="https://myapp.com or *" spellcheck="false" />
+                </div>
+                <div class="field">
+                  <label for="f-acac">Access-Control-Allow-Credentials</label>
+                  <select id="f-acac">
+                    <option value="">not sent</option>
+                    <option value="true">true</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="f-status">Actual response status</label>
+                  <input type="number" id="f-status" placeholder="e.g. 200" />
+                </div>
+                <div class="field full">
+                  <label for="f-acam">Access-Control-Allow-Methods (on the preflight)</label>
+                  <input type="text" id="f-acam" placeholder="GET, POST, OPTIONS" spellcheck="false" />
+                </div>
+                <div class="field full">
+                  <label for="f-acah">Access-Control-Allow-Headers (on the preflight)</label>
+                  <input type="text" id="f-acah" placeholder="Content-Type, Authorization" spellcheck="false" />
+                </div>
+                <div class="field full">
+                  <label for="f-vary">Vary</label>
+                  <input type="text" id="f-vary" placeholder="Origin" spellcheck="false" />
+                </div>
+                <div class="field">
+                  <label for="f-preflightstatus">OPTIONS preflight status</label>
+                  <input type="number" id="f-preflightstatus" placeholder="e.g. 204" />
+                </div>
+                <div class="field">
+                  <label for="f-redirects">Redirects to another origin?</label>
+                  <select id="f-redirects">
+                    <option value="">not set</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Your server</div>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="f-stack">Stack</label>
+                  <select id="f-stack">
+                    <option value="">not set / custom</option>
+                    <option value="express">Express</option>
+                    <option value="fastapi">FastAPI</option>
+                    <option value="django">Django</option>
+                    <option value="rails">Rails</option>
+                    <option value="laravel">Laravel</option>
+                    <option value="go">Go</option>
+                    <option value="dotnet">.NET</option>
+                    <option value="supabase">Supabase Edge Functions</option>
+                    <option value="firebase-functions">Firebase Functions</option>
+                    <option value="cloudflare-workers">Cloudflare Workers</option>
+                    <option value="s3">Amazon S3</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="json-pane" class="json-pane" hidden>
+            <textarea class="json-in" id="input" spellcheck="false" wrap="off"></textarea>
+            <div class="json-error" id="json-error" hidden></div>
+          </div>
+        </div>
+
+        <div class="pane">
+          <div class="pane-head">
+            <div class="pane-title">Result &middot; <span id="response-meta">idle</span></div>
+            <div class="pane-actions">
+              <button class="icon-btn" id="raw-toggle-btn" type="button">raw JSON</button>
+              <button class="icon-btn" id="copy-btn" type="button">copy</button>
+            </div>
+          </div>
+          <div class="output" id="output">
+            <div class="placeholder">Fill in the form and press <span class="kbd">Diagnose</span> or <span class="kbd">&#8984;&crarr;</span> to see the result.<span class="blink"></span></div>
+          </div>
+          <div class="status-strip">
+            <div>status</div>
+            <div id="status-pill" class="status-pill">idle</div>
+            <div class="spacer" style="flex:1"></div>
+            <div id="timing">not run yet</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="permalink-row">
+        <button class="icon-btn" id="copy-link-btn" type="button">Copy link to this diagnosis</button>
+        <span class="permalink-hint">Encodes your config into the URL. The pasted error text and any query string on the request URL are left out on purpose.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 How it works -->
+<section id="endpoint" class="block anchor-offset">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">03</p>
+      <h2>One function. Config in, diagnosis out.</h2>
+      <p class="sub">No server, no API key, no signup. <span class="mono">doctor-cors.js</span> is plain JavaScript: read it, fork it, or run it in your own scripts or CI.</p>
+    </div>
+
+    <div class="endpoint">
+      <div class="codeblock">
+        <div class="codeblock-head">
+          <span>doctor-cors.js</span>
+          <span>0 dependencies</span>
+        </div>
+        <pre><span class="p">import</span> { diagnose } <span class="p">from</span> <span class="s">'./doctor-cors.js'</span>;
+<span class="p">// or, loaded globally: const { diagnose } = window.CorsDoctor;</span>
+
+<span class="p">const</span> result = diagnose({
+  <span class="k">error</span>:   { message },
+  <span class="k">request</span>: { pageOrigin, requestUrl, method, credentials,
+             customHeaders, contentType },
+  <span class="k">response</span>: { acao, acac, acam, acah, vary, status,
+              redirectsToOtherOrigin, preflightStatus },
+  <span class="k">server</span>:  { stack },
+});
+
+<span class="p">// result</span>
+{
+  <span class="k">"status"</span>:     <span class="s">"fail"</span> | <span class="s">"warn"</span> | <span class="s">"pass"</span>,
+  <span class="k">"summary"</span>:    <span class="s">"&hellip;"</span>,
+  <span class="k">"expected"</span>:   { <span class="p">needsPreflight, acao, acac, acam, acah, vary, snippet, &hellip;</span> },
+  <span class="k">"problems"</span>:   [ { severity, code, message, path, value, fix } ],
+  <span class="k">"fixes"</span>:      [ { title, value, where } ],
+  <span class="k">"checklist"</span>:  [ <span class="s">"&hellip;"</span> ],
+  <span class="k">"disclaimer"</span>: <span class="s">"&hellip;"</span>
+}</pre>
+      </div>
+
+      <div class="endpoint-copy">
+        <p><strong style="color:var(--ink)">Everything runs client-side.</strong> The form above calls this exact function in your browser. There is no backend, no API key, and no request that carries your config anywhere.</p>
+        <p>It works out whether your request needs a preflight, computes what Access-Control-Allow-Origin/Credentials/Methods/Headers should be, diffs that byte for byte against what you say the response actually sent, and (when nothing structured is filled in) falls back to pattern-matching the pasted console error text itself.</p>
+        <div class="note">Free and open source. Found a case it gets wrong? Open a GitHub issue on the repo. No ads, and no tracking beyond anonymous usage counts.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 Free -->
+<section id="pricing" class="block anchor-offset">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">04</p>
+      <h2>Free.</h2>
+      <p class="sub">No account, no payment, no usage limit: it runs as a static page in your browser, so there is no server to bill for.</p>
+    </div>
+    <div class="ask subscribe-ask" id="subscribe">
+      <p><b>Tell me when a new tool lands.</b> New tools only. No newsletter, no sharing. Reply to any mail to be removed.</p>
+      <form id="subscribe-form" class="subscribe-form" data-subscribe data-source="cors-doctor" data-lang="en" data-thanks="subscribe-thanks" data-error="subscribe-error" novalidate>
+        <div class="hp" aria-hidden="true"><input type="text" name="website" id="subscribe-website" tabindex="-1" autocomplete="off"></div>
+        <input type="email" id="subscribe-email" name="email" required autocomplete="email" inputmode="email" placeholder="you@example.com" aria-label="Email address">
+        <button class="btn btn-solid" type="submit">Notify me</button>
+      </form>
+      <p id="subscribe-thanks" hidden>Thanks. You will hear from us only when something new is live.</p>
+      <p id="subscribe-error" hidden>Could not save. Write to <a href="mailto:andrej@arling.sk">andrej@arling.sk</a>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 05 Questions -->
+<section id="faq" class="block anchor-offset">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">05</p>
+      <h2>Questions developers actually search for.</h2>
+      <p class="sub">Straight answers to the same CORS questions this tool diagnoses, for when you just need the answer, not the checker.</p>
+    </div>
+
+    <details>
+      <summary>What does "No Access-Control-Allow-Origin header is present" mean?</summary>
+      <p>It means the response your browser received had no <span class="mono">Access-Control-Allow-Origin</span> header at all, so the browser refuses to hand the response body to your JavaScript, even though the server may have processed the request correctly and even returned a 200. Either the server never sends the header (no CORS middleware, or it isn't wired into this route), or something in front of it, a proxy, CDN, load balancer, or an error-handling middleware, strips it before the response reaches the browser. It is not a case of the value being wrong: there is no value at all.</p>
+    </details>
+    <details>
+      <summary>Why does CORS fail only for POST with JSON or with an Authorization header?</summary>
+      <p>Because that request stops being a "simple request" the moment it carries a header outside the CORS-safelisted set (<span class="mono">Accept</span>, <span class="mono">Accept-Language</span>, <span class="mono">Content-Language</span>, <span class="mono">Content-Type</span>) or a Content-Type other than <span class="mono">application/x-www-form-urlencoded</span>, <span class="mono">multipart/form-data</span>, or <span class="mono">text/plain</span>. <span class="mono">application/json</span> and an <span class="mono">Authorization</span> header both push it into preflight territory: the browser sends an <span class="mono">OPTIONS</span> request first, and if that response is missing, returns a non-2xx status, or its Access-Control-Allow-Methods / Access-Control-Allow-Headers don't list your method and header, the browser blocks the real request before it's even sent. A plain GET or a form-encoded POST never triggers this, which is why it can look like "POST is broken" when it's really "the preflight for this POST is broken".</p>
+    </details>
+    <details>
+      <summary>Can I use Access-Control-Allow-Origin: * with credentials?</summary>
+      <p>No. The Fetch/CORS spec forbids pairing the <span class="mono">*</span> wildcard with a credentialed request (cookies, or fetch with <span class="mono">credentials: 'include'</span>): when responding to a credentialed request, the server must specify an origin in Access-Control-Allow-Origin instead of specifying the <span class="mono">*</span> wildcard, and it must also send <span class="mono">Access-Control-Allow-Credentials: true</span>. If your request needs cookies or an Authorization header carried automatically, the server has to echo back the exact requesting origin (typically from an allow-list), not a wildcard, plus <span class="mono">Vary: Origin</span> so caches don't serve one origin's response to another.</p>
+    </details>
+    <details>
+      <summary>Why does it work in Postman but not in the browser?</summary>
+      <p>CORS is a browser-enforced restriction, not a server-enforced one. Postman, curl, and server-to-server calls never apply the same-origin policy or send a preflight OPTIONS request, so they see the real response regardless of what CORS headers are present. Only a page running in a browser, calling a different origin via fetch/XHR, triggers CORS checks and preflights. If Postman gets a clean 200, your server logic is fine: the fix is entirely about which response headers your server sends back to a browser-originated request.</p>
+    </details>
+    <details>
+      <summary>How do I fix CORS on Express, FastAPI or Django?</summary>
+      <p><b>Express:</b> <span class="mono">app.use(cors({ origin: 'https://your-frontend.example', credentials: true }))</span> using the <span class="mono">cors</span> package, mounted before your routes and before any auth middleware. <b>FastAPI:</b> <span class="mono">app.add_middleware(CORSMiddleware, allow_origins=[...], allow_credentials=True, allow_methods=[...], allow_headers=[...])</span>, noting that <span class="mono">allow_origins</span> can't be <span class="mono">["*"]</span> together with <span class="mono">allow_credentials=True</span>. <b>Django:</b> add <span class="mono">corsheaders</span> to <span class="mono">INSTALLED_APPS</span>, put <span class="mono">corsheaders.middleware.CorsMiddleware</span> as high as possible in <span class="mono">MIDDLEWARE</span>, and set <span class="mono">CORS_ALLOWED_ORIGINS</span>. In every case the exact origin (not a wildcard, if you use cookies) and the ordering of middleware relative to auth checks are what most setups get wrong. The diagnosis tool above generates the specific snippet for your values.</p>
+    </details>
+    <details>
+      <summary>Does this tool call my server?</summary>
+      <p>No. Everything you type or paste, the error text, your request details, the response headers, stays in your browser tab and is never sent anywhere. The diagnosis runs entirely client-side against the values you enter; it never makes a request to your API to check anything live. Read <span class="mono">doctor-cors.js</span> directly, or check your browser's Network tab while using the tool, to verify.</p>
+    </details>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap cols">
+    <div><b>ARLing s. r. o.</b><br>Ivansk&aacute; cesta 32E<br>821 04 Bratislava, Slovakia</div>
+    <div>Company ID 56583486<br>VAT ID SK2122352100<br><a href="mailto:andrej@arling.sk">andrej@arling.sk</a></div>
+    <div>
+      <a href="https://arling.sk/">ARLing</a> &middot; <a href="https://arling.sk/google-oauth-redirect-doctor/" target="_blank" rel="noopener">Google OAuth Redirect Doctor</a> &middot; <a href="https://arling.sk/supabase-redirect-doctor/" target="_blank" rel="noopener">Supabase Redirect Doctor</a> &middot; <a href="https://arling.sk/stripe-webhook-doctor/" target="_blank" rel="noopener">Stripe Webhook Doctor</a><br>
+      <a href="llms.txt">llms.txt</a> &middot; <a href="sitemap.xml">sitemap</a> &middot; <a href="https://github.com/AndryRoby/cors-doctor" target="_blank" rel="noopener">source on GitHub</a> &middot; <a href="https://arling.sk/privacy/">Privacy</a>
+      <p>Read-only, client-side check: nothing you enter is sent anywhere, and it does not call your server. Verify with your browser's Network tab before shipping a fix. Not affiliated with Express, FastAPI, Django, Rails, Laravel, Go, Microsoft, Supabase, Firebase, Amazon Web Services, or Cloudflare.</p>
+      <p>Provided as is, without warranty. Anonymous visit and click counts via self-hosted Umami; we never see what you type.</p>
+    </div>
+  </div>
+</footer>
+
+<!-- Scripts -->
+<script type="module">
+  import { diagnose, expectedValues } from './doctor-cors.js';
+
+  // Intentionally imperfect: demonstrates several rules at once on first
+  // "Diagnose". A React app on https://myapp.com calls its Express API on
+  // https://api.myapp.com with a JSON PATCH request, credentials: 'include'
+  // and a manual Authorization header. The server answers with the wildcard
+  // (never allowed alongside credentials), and its preflight OPTIONS
+  // response has neither Access-Control-Allow-Methods nor -Headers set.
+  const SAMPLE_CONFIG = {
+    error: {
+      message: "Access to fetch at 'https://api.myapp.com/v1/orders/42' from origin 'https://myapp.com' has been blocked by CORS policy: The value of the 'Access-Control-Allow-Origin' header in the response must not be the wildcard '*' when the request's credentials mode is 'include'."
+    },
+    request: {
+      pageOrigin: "https://myapp.com",
+      requestUrl: "https://api.myapp.com/v1/orders/42",
+      method: "PATCH",
+      credentials: "include",
+      customHeaders: ["Authorization"],
+      contentType: "application/json"
+    },
+    response: {
+      acao: "*",
+      acac: "",
+      acam: "",
+      acah: "",
+      vary: "",
+      status: null,
+      redirectsToOtherOrigin: null,
+      preflightStatus: 204
+    },
+    server: {
+      stack: "express"
+    }
+  };
+
+  const METHOD_OPTIONS = ['', 'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+  const CREDENTIALS_OPTIONS = ['', 'omit', 'same-origin', 'include'];
+  const STACK_OPTIONS = ['', 'express', 'fastapi', 'django', 'rails', 'laravel', 'go', 'dotnet', 'supabase', 'firebase-functions', 'cloudflare-workers', 's3'];
+  const ACAC_OPTIONS = ['', 'true'];
+
+  const $ = (id) => document.getElementById(id);
+
+  const input = $('input');
+  const output = $('output');
+  const runBtn = $('run-btn');
+  const resetBtn = $('reset-btn');
+  const copyBtn = $('copy-btn');
+  const rawToggleBtn = $('raw-toggle-btn');
+  const copyLinkBtn = $('copy-link-btn');
+  const meta = $('response-meta');
+  const statusPill = $('status-pill');
+  const timing = $('timing');
+  const tabFormBtn = $('tab-form');
+  const tabJsonBtn = $('tab-json');
+  const formPane = $('form-pane');
+  const jsonPane = $('json-pane');
+  const jsonError = $('json-error');
+
+  let lastResult = null;
+  let rawMode = false;
+
+  // ── safe umami wrapper ──────────────────────────────────────────────
+  function track(name, data) {
+    try { if (window.umami) window.umami.track(name, data); } catch (e) {}
+  }
+
+  // ── helpers: lines <-> array, number <-> field ──────────────────────
+  function linesToArray(text) {
+    return String(text || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  }
+  function arrayToLines(arr) {
+    return Array.isArray(arr) ? arr.join('\n') : '';
+  }
+  function triFromSelect(v) {
+    return v === 'true' ? true : v === 'false' ? false : null;
+  }
+  function selectFromTri(v) {
+    return v === true ? 'true' : v === false ? 'false' : '';
+  }
+  function numOrNull(v) {
+    if (v === '' || v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // ── Form <-> config ──────────────────────────────────────────────────
+  function formToConfig() {
+    return {
+      error: {
+        message: $('f-errormsg').value
+      },
+      request: {
+        pageOrigin: $('f-pageorigin').value.trim(),
+        requestUrl: $('f-requesturl').value.trim(),
+        method: $('f-method').value,
+        credentials: $('f-credentials').value,
+        customHeaders: linesToArray($('f-customheaders').value),
+        contentType: $('f-contenttype').value.trim()
+      },
+      response: {
+        acao: $('f-acao').value.trim(),
+        acac: $('f-acac').value === 'true' ? 'true' : '',
+        acam: $('f-acam').value.trim(),
+        acah: $('f-acah').value.trim(),
+        vary: $('f-vary').value.trim(),
+        status: numOrNull($('f-status').value),
+        redirectsToOtherOrigin: triFromSelect($('f-redirects').value),
+        preflightStatus: numOrNull($('f-preflightstatus').value)
+      },
+      server: {
+        stack: $('f-stack').value
+      }
+    };
+  }
+
+  function configToForm(cfg) {
+    cfg = cfg && typeof cfg === 'object' ? cfg : {};
+    const err = cfg.error && typeof cfg.error === 'object' ? cfg.error : {};
+    const req = cfg.request && typeof cfg.request === 'object' ? cfg.request : {};
+    const res = cfg.response && typeof cfg.response === 'object' ? cfg.response : {};
+    const srv = cfg.server && typeof cfg.server === 'object' ? cfg.server : {};
+
+    $('f-errormsg').value = err.message || '';
+    $('f-pageorigin').value = req.pageOrigin || '';
+    $('f-requesturl').value = req.requestUrl || '';
+    $('f-method').value = METHOD_OPTIONS.includes(req.method) ? req.method : '';
+    $('f-credentials').value = CREDENTIALS_OPTIONS.includes(req.credentials) ? req.credentials : '';
+    $('f-customheaders').value = arrayToLines(req.customHeaders);
+    $('f-contenttype').value = req.contentType || '';
+    $('f-acao').value = res.acao || '';
+    $('f-acac').value = ACAC_OPTIONS.includes(res.acac) ? res.acac : '';
+    $('f-acam').value = res.acam || '';
+    $('f-acah').value = res.acah || '';
+    $('f-vary').value = res.vary || '';
+    $('f-status').value = typeof res.status === 'number' ? String(res.status) : '';
+    $('f-redirects').value = selectFromTri(res.redirectsToOtherOrigin);
+    $('f-preflightstatus').value = typeof res.preflightStatus === 'number' ? String(res.preflightStatus) : '';
+    $('f-stack').value = STACK_OPTIONS.includes(srv.stack) ? srv.stack : '';
+  }
+
+  // ── mode toggle ──────────────────────────────────────────────────────
+  function setMode(mode) {
+    const toJson = mode === 'json';
+    if (toJson) {
+      input.value = JSON.stringify(formToConfig(), null, 2);
+      jsonError.hidden = true;
+      tabFormBtn.classList.remove('active');
+      tabJsonBtn.classList.add('active');
+      formPane.hidden = true;
+      jsonPane.hidden = false;
+      track('mode_json');
+      return;
+    }
+    // switching to form: parse JSON first, only switch if it's valid
+    try {
+      const parsed = JSON.parse(input.value);
+      configToForm(parsed);
+      jsonError.hidden = true;
+      tabFormBtn.classList.add('active');
+      tabJsonBtn.classList.remove('active');
+      formPane.hidden = false;
+      jsonPane.hidden = true;
+    } catch (e) {
+      jsonError.hidden = false;
+      jsonError.textContent = 'Can’t switch to Form. JSON is invalid: ' + e.message;
+      tabFormBtn.classList.remove('active');
+      tabJsonBtn.classList.add('active');
+      formPane.hidden = true;
+      jsonPane.hidden = false;
+    }
+  }
+  tabFormBtn.addEventListener('click', () => setMode('form'));
+  tabJsonBtn.addEventListener('click', () => setMode('json'));
+
+  function currentConfig() {
+    if (!jsonPane.hidden) {
+      try { return JSON.parse(input.value); } catch (e) { return null; }
+    }
+    return formToConfig();
+  }
+
+  // ── output rendering ─────────────────────────────────────────────────
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function highlight(json) {
+    return esc(json).replace(
+      /("(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+      function (match) {
+        let cls = 'n';
+        if (/^"/.test(match)) {
+          cls = /:$/.test(match) ? 'k' : 's';
+        } else if (/true|false|null/.test(match)) {
+          cls = 'b';
+        }
+        if (cls === 's') {
+          if (/"high"/.test(match)) return '<span class="s sev-high">' + match + '</span>';
+          if (/"medium"/.test(match)) return '<span class="s sev-medium">' + match + '</span>';
+          if (/"low"/.test(match)) return '<span class="s sev-low">' + match + '</span>';
+          if (/"fail"/.test(match)) return '<span class="s sev-high">' + match + '</span>';
+          if (/"pass"/.test(match)) return '<span class="s sev-low">' + match + '</span>';
+        }
+        return '<span class="' + cls + '">' + match + '</span>';
+      }
+    );
+  }
+
+  function expectedRow(label, value, opts) {
+    if (value === null || value === undefined || value === '') return '';
+    opts = opts || {};
+    const multiline = String(value).includes('\n');
+    const cls = opts.prose ? 'prose' : (multiline ? 'multiline' : '');
+    return `<tr><td class="k">${esc(label)}</td><td class="v${cls ? ' ' + cls : ''}${opts.prose ? '' : ' mono'}">${esc(value)}</td></tr>`;
+  }
+
+  function renderResult(r) {
+    const e = r.expected || {};
+    const rows =
+      expectedRow('Needs preflight', e.needsPreflight ? 'Yes' : 'No') +
+      expectedRow('Preflight reason', (e.preflightReasons || []).join('; '), { prose: true }) +
+      expectedRow('Recommended ACAO', e.acao) +
+      expectedRow('Recommended ACAC', e.acac) +
+      expectedRow('Recommended ACAM', e.acam) +
+      expectedRow('Recommended ACAH', e.acah) +
+      expectedRow('Recommended Vary', e.vary) +
+      expectedRow('Stack', e.stackLabel);
+
+    const problemsHtml = r.problems
+      .map(
+        (p) => `<div class="problem-item ${esc(p.severity)}">
+          <div><span class="sev-tag">${esc(p.severity)}</span>${esc(p.message)}</div>
+          ${p.where ? `<div class="where">${esc(p.where)}</div>` : ''}
+        </div>`
+      )
+      .join('');
+
+    const fixesHtml = r.fixes
+      .map(
+        (f, i) => `<div class="fix-item">
+          <div class="fix-body">
+            <div class="fix-title">${esc(f.title)}${f.where ? ` <span class="where">· ${esc(f.where)}</span>` : ''}</div>
+            <pre class="fix-value${f.value.includes('\n') ? ' multiline' : ''}">${esc(f.value)}</pre>
+          </div>
+          <button class="icon-btn copy-fix-btn" type="button" data-fix-index="${i}">copy</button>
+        </div>`
+      )
+      .join('');
+
+    const checklistHtml = r.checklist.map((c) => `<li>${esc(c)}</li>`).join('');
+
+    output.innerHTML = `<div class="result">
+      <div>
+        <span class="big-pill ${esc(r.status)}">${esc(r.status)}</span>
+        <p class="result-summary">${esc(r.summary)}</p>
+      </div>
+      <div>
+        <div class="form-section-title">Expected values</div>
+        <table class="exp-table"><tbody>${rows}</tbody></table>
+      </div>
+      ${r.problems.length ? `<div><div class="form-section-title">Problems (${r.problems.length})</div>${problemsHtml}</div>` : ''}
+      ${r.fixes.length ? `<div><div class="form-section-title">Fixes</div>${fixesHtml}</div>` : ''}
+      <div>
+        <div class="form-section-title">Server snippet${e.stackLabel ? ` &middot; ${esc(e.stackLabel)}` : ''}</div>
+        <div class="codeblock" style="margin-top:8px">
+          <div class="codeblock-head"><span>${e.stackLabel ? esc(e.stackLabel) : 'generic headers'}</span>
+            <button class="icon-btn" type="button" id="copy-snippet-btn">copy</button>
+          </div>
+          <pre style="margin:0">${esc(e.snippet || '')}</pre>
+        </div>
+      </div>
+      <div>
+        <div class="form-section-title">Checklist</div>
+        <ul class="checklist">${checklistHtml}</ul>
+      </div>
+      <div style="font-size:11px; color:var(--muted); line-height:1.6;">${esc(r.disclaimer)}</div>
+    </div>`;
+
+    output.querySelectorAll('.copy-fix-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const idx = Number(btn.getAttribute('data-fix-index'));
+        const val = r.fixes[idx].value;
+        try {
+          await navigator.clipboard.writeText(val);
+          btn.textContent = 'copied ✓';
+          track('copy_fix');
+        } catch (e) {
+          btn.textContent = 'failed';
+        }
+        setTimeout(() => { btn.textContent = 'copy'; }, 1100);
+      });
+    });
+
+    const snippetBtn = output.querySelector('#copy-snippet-btn');
+    if (snippetBtn) {
+      snippetBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(e.snippet || '');
+          snippetBtn.textContent = 'copied ✓';
+          track('copy_fix', { kind: 'snippet' });
+        } catch (err) {
+          snippetBtn.textContent = 'failed';
+        }
+        setTimeout(() => { snippetBtn.textContent = 'copy'; }, 1100);
+      });
+    }
+  }
+
+  function rerenderOutput() {
+    if (!lastResult) return;
+    if (rawMode) {
+      output.innerHTML = '<pre class="out-line" style="margin:0">' + highlight(JSON.stringify(lastResult, null, 2)) + '</pre>';
+    } else {
+      renderResult(lastResult);
+    }
+  }
+
+  rawToggleBtn.addEventListener('click', () => {
+    if (!lastResult) return;
+    rawMode = !rawMode;
+    rawToggleBtn.textContent = rawMode ? 'formatted' : 'raw JSON';
+    rerenderOutput();
+  });
+
+  function setStatusPill(status) {
+    statusPill.className = 'status-pill ' + (status === 'fail' || status === 'warn' || status === 'pass' ? status : '');
+    statusPill.textContent = status;
+    meta.textContent = status;
+  }
+
+  // ── run ──────────────────────────────────────────────────────────────
+  function runDiagnose() {
+    const cfg = currentConfig();
+    if (cfg === null) {
+      output.innerHTML = '<div class="placeholder" style="color:var(--accent)">Invalid JSON. Fix the syntax and try again.</div>';
+      setStatusPill('idle');
+      meta.textContent = 'invalid JSON';
+      return;
+    }
+    const t0 = performance.now();
+    const result = diagnose(cfg);
+    const dt = performance.now() - t0;
+
+    lastResult = result;
+    rawMode = false;
+    rawToggleBtn.textContent = 'raw JSON';
+    renderResult(result);
+    setStatusPill(result.status);
+    timing.textContent = dt.toFixed(2) + ' ms · client-side, 0 requests';
+
+    track('diagnose', {
+      status: result.status,
+      stack: (cfg.server && cfg.server.stack) || '',
+      needsPreflight: result.expected ? String(!!result.expected.needsPreflight) : ''
+    });
+
+    updatePermalink(cfg);
+  }
+  runBtn.addEventListener('click', runDiagnose);
+
+  resetBtn.addEventListener('click', () => {
+    configToForm(SAMPLE_CONFIG);
+    input.value = JSON.stringify(SAMPLE_CONFIG, null, 2);
+    jsonError.hidden = true;
+    lastResult = null;
+    output.innerHTML = '<div class="placeholder">Fill in the form and press <span class="kbd">Diagnose</span> or <span class="kbd">⌘↵</span> to see the result.<span class="blink"></span></div>';
+    statusPill.className = 'status-pill';
+    statusPill.textContent = 'idle';
+    meta.textContent = 'idle';
+    timing.textContent = 'not run yet';
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    const text = output.innerText.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      const old = copyBtn.textContent;
+      copyBtn.textContent = 'copied ✓';
+      setTimeout(() => { copyBtn.textContent = old; }, 1100);
+    } catch (e) {
+      copyBtn.textContent = 'copy failed';
+      setTimeout(() => { copyBtn.textContent = 'copy'; }, 1100);
+    }
+  });
+
+  // ⌘↵ / Ctrl+Enter runs the diagnosis from either pane
+  [input, formPane].forEach((el) => {
+    el.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        runDiagnose();
+      }
+    });
+  });
+
+  // ── permalink ────────────────────────────────────────────────────────
+  // Limit: 6000 chars. Deliberately strips two things that could carry
+  // secrets before they ever reach the URL: the free-text pasted console
+  // error, and any query string / fragment on the request URL.
+  const PERMALINK_LIMIT = 6000;
+  function sanitizeForPermalink(cfg) {
+    let c;
+    try { c = JSON.parse(JSON.stringify(cfg || {})); } catch (e) { return cfg; }
+    if (c.error) c.error.message = '';
+    if (c.request && c.request.requestUrl) {
+      try {
+        const u = new URL(c.request.requestUrl);
+        c.request.requestUrl = u.origin + u.pathname;
+      } catch (e) { /* leave as typed if it doesn't parse as a URL */ }
+    }
+    return c;
+  }
+  function toBase64Url(str) {
+    const b64 = btoa(unescape(encodeURIComponent(str)));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function fromBase64Url(str) {
+    let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    return decodeURIComponent(escape(atob(b64)));
+  }
+  function updatePermalink(cfg) {
+    try {
+      const encoded = toBase64Url(JSON.stringify(sanitizeForPermalink(cfg)));
+      if (encoded.length > PERMALINK_LIMIT) return; // too large, so the URL is left alone
+      history.replaceState(null, '', '#c=' + encoded);
+    } catch (e) {}
+  }
+  function loadFromHash() {
+    const m = location.hash.match(/#c=([^&]+)/);
+    if (!m) return false;
+    if (m[1].length > PERMALINK_LIMIT) return false; // guard against absurd payloads
+    try {
+      const cfg = JSON.parse(fromBase64Url(m[1]));
+      configToForm(cfg);
+      input.value = JSON.stringify(cfg, null, 2);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  copyLinkBtn.addEventListener('click', async () => {
+    const cfg = currentConfig();
+    if (cfg === null) return;
+    updatePermalink(cfg);
+    try {
+      await navigator.clipboard.writeText(location.href);
+      copyLinkBtn.textContent = 'copied ✓';
+      track('copy_link');
+    } catch (e) {
+      copyLinkBtn.textContent = 'copy failed';
+    }
+    setTimeout(() => { copyLinkBtn.textContent = 'Copy link to this diagnosis'; }, 1400);
+  });
+
+  // ── init ─────────────────────────────────────────────────────────────
+  configToForm(SAMPLE_CONFIG);
+  input.value = JSON.stringify(SAMPLE_CONFIG, null, 2);
+
+  if (location.hash && loadFromHash()) {
+    runDiagnose();
+  }
+
+  // Smooth-scroll for in-page anchors
+  document.querySelectorAll('a[href^="#"]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      const id = a.getAttribute('href').slice(1);
+      if (!id) return;
+      const el = document.getElementById(id);
+      if (!el) return;
+      e.preventDefault();
+      window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 24, behavior: 'smooth' });
+    });
+  });
+</script>
+
+<script src="subscribe.js" defer></script>
+<script defer src="https://homelab.tailbf8f27.ts.net/script.js" data-website-id="ec31b853-4998-4d69-b7ff-67cf7c5bb2f4"></script>
+</body>
+</html>
