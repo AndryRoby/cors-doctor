@@ -436,8 +436,15 @@ const MESSAGE_RULES = [
   {
     code: 'missing_acao',
     re: /no 'access-control-allow-origin' header is present|header 'access-control-allow-origin' missing/i,
-    message: "The pasted error says no Access-Control-Allow-Origin header is present on the response. The server (or a proxy/CDN/load balancer in front of it) never sent the header at all: this is not a case of the value being wrong.",
-    fix: 'Add Access-Control-Allow-Origin to the actual response the browser receives, including error responses from that same route.',
+    build: (m, text) => (/preflight/i.test(text)
+      ? {
+        message: 'The pasted error says the preflight (OPTIONS) response has no Access-Control-Allow-Origin header. The browser checks that OPTIONS response before it sends the real request, so the real request never went out: whatever your GET or POST handler returns does not matter yet.',
+        fix: 'Answer OPTIONS on this path with Access-Control-Allow-Origin (plus Access-Control-Allow-Methods and -Headers for this request) and a 2xx status, before any auth check or router.',
+      }
+      : {
+        message: "The pasted error says no Access-Control-Allow-Origin header is present on the response. The server (or a proxy/CDN/load balancer in front of it) never sent the header at all: this is not a case of the value being wrong.",
+        fix: 'Add Access-Control-Allow-Origin to the actual response the browser receives, including error responses from that same route.',
+      }),
   },
   {
     code: 'multiple_acao_values',
@@ -504,11 +511,21 @@ const MESSAGE_RULES = [
   },
   {
     code: 'preflight_status_not_ok',
-    re: /cors preflight channel did not succeed|it does not have http ok status|response to preflight request doesn't pass access control check/i,
-    message: 'The pasted error says the preflight (OPTIONS) request itself failed or did not return a successful status. Something before your CORS logic (auth middleware, a 404 router, a WAF) is intercepting OPTIONS.',
-    fix: 'Make sure OPTIONS requests reach your CORS handler first and get a 2xx response, before any auth check or catch-all 404.',
+    re: /cors preflight channel did not succeed|cors preflight response did not succeed|it does not have http ok status/i,
+    message: 'The pasted error says the preflight (OPTIONS) request did not get a 2xx status (or failed outright). Fill in the preflight status from DevTools → Network below: 401 or 403 points to an auth check running before CORS, 404 or 405 to nothing answering OPTIONS on this path.',
+    fix: 'Make sure OPTIONS requests reach your CORS handler first and get a 2xx response, before any auth check or router.',
+  },
+  {
+    // Chrome prefixes every failed preflight check with this sentence; the text after the colon says which check.
+    code: 'preflight_failed',
+    re: /response to preflight request doesn't pass access control check/i,
+    message: "The pasted error comes from the preflight: the browser sent an OPTIONS request before the real one, and that OPTIONS response failed a CORS check. The text after the colon names the check; fill in the preflight's status and headers from DevTools → Network below to pin it down.",
+    fix: 'Look at the OPTIONS request just above the failed one in DevTools → Network and compare its status and Access-Control-Allow-* headers with the expected values here.',
   },
 ];
+
+// Codes that can only come from a preflight: if the pasted error has one, the browser did send OPTIONS.
+const PREFLIGHT_MESSAGE_CODES = new Set(['method_not_in_acam', 'header_not_in_acah', 'preflight_redirect', 'preflight_status_not_ok', 'preflight_failed']);
 
 function classifyMessage(msg) {
   const s = safeStr(msg);
@@ -517,10 +534,11 @@ function classifyMessage(msg) {
   for (const rule of MESSAGE_RULES) {
     const m = s.match(rule.re);
     if (!m) continue;
-    const built = typeof rule.build === 'function' ? rule.build(m) : { message: rule.message, fix: rule.fix };
+    const built = typeof rule.build === 'function' ? rule.build(m, s) : { message: rule.message, fix: rule.fix };
     out.push({ code: rule.code, message: built.message, fix: built.fix });
   }
-  return out;
+  // The generic Chrome prefix only earns its own entry when nothing more specific matched.
+  return out.length > 1 ? out.filter((x) => x.code !== 'preflight_failed') : out;
 }
 
 // ───────────────────────── diagnose() ─────────────────────────
@@ -549,7 +567,17 @@ const MESSAGE_SEVERITY = {
   preflight_redirect: 'high',
   not_http: 'medium',
   preflight_status_not_ok: 'medium',
+  preflight_failed: 'medium',
 };
+
+// What a non-2xx preflight status usually means (the preflight never carries cookies or Authorization).
+function preflightStatusCause(code) {
+  if (code === 401 || code === 403) return 'an auth check (middleware, API gateway or WAF) runs before your CORS handler and rejects OPTIONS, which never carries your cookies or Authorization header';
+  if (code === 404 || code === 405) return 'nothing answers OPTIONS on this path: the router only has the GET/POST route, or the CORS middleware is not registered for it, so the framework returns ' + code;
+  if (code >= 300 && code < 400) return 'the preflight is redirected (for example http to https, or a trailing slash), and browsers do not follow a redirect on a preflight';
+  if (code >= 500) return 'the server errored while handling OPTIONS: look for this OPTIONS request in the server log';
+  return 'something before your CORS handler answers OPTIONS';
+}
 
 /**
  * @param {object} config
@@ -584,6 +612,17 @@ export function diagnose(config) {
   const redirectsToOtherOrigin = response.redirectsToOtherOrigin === true ? true : response.redirectsToOtherOrigin === false ? false : null;
 
   const expected = computeExpected(cfg);
+  const messageCodes = classifyMessage(errorMessage).map((x) => x.code);
+  if (!expected.needsPreflight && messageCodes.some((c) => PREFLIGHT_MESSAGE_CODES.has(c))) {
+    // The browser did send a preflight even if the request fields here do not show why.
+    expected.needsPreflight = true;
+    expected.preflightReasons = ['the pasted error comes from the preflight (OPTIONS) request'];
+    expected.acam = Array.from(new Set([expected.method, 'OPTIONS'])).join(', ');
+    expected.snippet = buildSnippet(expected.stack, expected);
+  }
+  // With a pasted error and no response field entered, an empty ACAO means "not filled in", not "header absent".
+  const responseGiven = [response.acao, response.acac, response.acam, response.acah, response.vary].some((v) => safeStr(v).trim() !== '')
+    || status != null || preflightStatus != null || redirectsToOtherOrigin != null;
   const pf = { needsPreflight: expected.needsPreflight, reasons: expected.preflightReasons, method: expected.method, customHeaders: (Array.isArray(request.customHeaders) ? request.customHeaders : []).map((h) => safeStr(h).trim()).filter(Boolean).filter((h) => !SAFELISTED_HEADERS.includes(h.toLowerCase())), nonSimpleContentType: request.contentType && !isSimpleContentType(request.contentType) ? request.contentType : null };
   const headersForAllowlist = pf.customHeaders.slice();
   if (pf.nonSimpleContentType) headersForAllowlist.push('Content-Type');
@@ -611,7 +650,16 @@ export function diagnose(config) {
     }
 
     // ── 2. missing ACAO ──────────────────────────────────────────────────
-    if (!acao) {
+    if (!acao && !responseGiven && errorMessage) {
+      if (!messageCodes.includes('missing_acao')) {
+        pushProblem(problems, {
+          severity: 'low',
+          code: 'response_not_filled',
+          message: 'The response headers are not filled in, so this cannot tell whether Access-Control-Allow-Origin was sent or what it said. Copy them from DevTools → Network (the failed request, and the OPTIONS preflight just above it, if there is one) to check the values.',
+          path: 'response.acao',
+        });
+      }
+    } else if (!acao) {
       pushProblem(problems, {
         severity: 'high',
         code: 'missing_acao',
@@ -707,7 +755,7 @@ export function diagnose(config) {
         pushProblem(problems, {
           severity: 'high',
           code: 'preflight_status_not_ok',
-          message: `The OPTIONS preflight returned ${preflightStatus}, not a 2xx. A browser only proceeds with the real request after a successful preflight; a common cause is auth middleware or a catch-all router running before your CORS handler and rejecting OPTIONS with a 401/404.`,
+          message: `The OPTIONS preflight returned ${preflightStatus}, not a 2xx. A browser only proceeds with the real request after a successful preflight; with ${preflightStatus}, the usual cause is that ${preflightStatusCause(preflightStatus)}.`,
           path: 'response.preflightStatus',
           value: preflightStatus,
           fix: 'Make CORS middleware run first, so OPTIONS requests short-circuit with a 2xx before any auth check or router miss.',

@@ -410,6 +410,48 @@ const HEADER_BASE = { request: { pageOrigin: 'https://myapp.com', method: 'PUT',
   has('pasted wildcard+credentials message (Chrome phrasing): flags acao_wildcard_with_credentials', r.problems, 'acao_wildcard_with_credentials');
 }
 
+// Preflight errors pasted alone (27. 9. 2026, notes cors-preflight-doesnt-pass-access-control-check).
+{
+  const r = diagnose({
+    error: { message: "Access to fetch at 'https://api.myapp.com/x' from origin 'https://myapp.com' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status." },
+    request: { pageOrigin: 'https://myapp.com', requestUrl: 'https://api.myapp.com/x' },
+  });
+  has('HTTP ok status message: preflight_status_not_ok', r.problems, 'preflight_status_not_ok');
+  lacks('message alone does not claim ACAO is missing', r.problems, 'missing_acao');
+  has('instead a low note that the response is not filled in', r.problems, 'response_not_filled');
+  eq('a GET with no custom headers still counts as preflighted when the error says so', r.expected.needsPreflight, true);
+  lacks('the specific code wins over the generic Chrome prefix', r.problems, 'preflight_failed');
+}
+
+{
+  const r = diagnose({
+    error: { message: "Access to fetch at 'https://api.myapp.com/x' from origin 'https://myapp.com' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource." },
+    request: { pageOrigin: 'https://myapp.com' },
+  });
+  has('preflight + no ACAO: missing_acao', r.problems, 'missing_acao');
+  ok('missing_acao names the OPTIONS response, not the real one', messageOf(r.problems, 'missing_acao').includes('preflight (OPTIONS) response'));
+  lacks('no status claim when the message is about the header', r.problems, 'preflight_status_not_ok');
+  lacks('no response_not_filled note when the message already says ACAO is missing', r.problems, 'response_not_filled');
+}
+
+{
+  const r = diagnose({
+    request: { pageOrigin: 'https://myapp.com', requestUrl: 'https://api.myapp.com/x', method: 'POST', customHeaders: ['Authorization'], contentType: 'application/json' },
+    response: { acao: 'https://myapp.com', preflightStatus: 405 },
+  });
+  ok('405 preflight: cause is nothing answering OPTIONS, not auth', /nothing answers OPTIONS/.test(messageOf(r.problems, 'preflight_status_not_ok')));
+  const r401 = diagnose({
+    request: { pageOrigin: 'https://myapp.com', requestUrl: 'https://api.myapp.com/x', method: 'POST', customHeaders: ['Authorization'] },
+    response: { acao: 'https://myapp.com', preflightStatus: 401 },
+  });
+  ok('401 preflight: cause is an auth check before CORS', /auth check/.test(messageOf(r401.problems, 'preflight_status_not_ok')));
+}
+
+{
+  const r = diagnose({ error: { message: "Response to preflight request doesn't pass access control check: Something new." }, request: { pageOrigin: 'https://myapp.com' } });
+  has('unknown preflight check: the generic preflight_failed entry', r.problems, 'preflight_failed');
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // 15. sortProblems() — high severity always sorts first regardless of push order
 // ─────────────────────────────────────────────────────────────────────────
@@ -424,7 +466,7 @@ const HEADER_BASE = { request: { pageOrigin: 'https://myapp.com', method: 'PUT',
   const r2 = diagnose({
     error: { message: 'CORS request not http' }, // medium, message-derived, pushed last
     request: { pageOrigin: 'https://myapp.com' },
-    response: { acao: '' }, // high: missing_acao, pushed first
+    response: { acao: '', status: 200 }, // high: missing_acao, pushed first (status entered, so an empty ACAO means absent)
   });
   eq('sorted problems: first entry is high severity', r2.problems[0].severity, 'high');
   eq('sorted problems: last entry is not higher severity than the first', SEVERITY_RANK(r2.problems[r2.problems.length - 1].severity) >= SEVERITY_RANK(r2.problems[0].severity), true);
